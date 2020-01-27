@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webgl - geometry - cube</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<link type="text/css" rel="stylesheet" href="main.css">
+    <style>
+			body { margin: 0; }
+			canvas { width: 90%; height: 90%}
+		</style>
+    
+    
+	</head>
+	<body>
+  
+    <canvas id="renderCanvas">
+  
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/104/three.js"></script>
+    <!--<script src="https://raw.githubusercontent.com/chandlerprall/Physijs/master/physi.js"></script>-->
+    <script>
+    
+//GLOBAL
+
+      const RENDER_HEIGHT = 720;
+      const RENDER_WIDTH = 1280;
+      const TAU = Math.PI*2;
+      var MY_TEAM  = 0;
+
+      
+      //Physijs.scripts.worker = "https://raw.githubusercontent.com/chandlerprall/Physijs/master/physijs_worker.js"
+      //Physijs.scripts.ammo = "https://raw.githubusercontent.com/kripken/ammo.js/master/builds/ammo.js";
+
+//Initializations
+      
+      var scene = new THREE.Scene();
+      var camera = new THREE.PerspectiveCamera(
+          75,
+          RENDER_WIDTH/RENDER_HEIGHT,
+          0.1,
+          1000
+      );
+      var renderer = new THREE.WebGLRenderer({ canvas: renderCanvas, antialias: true });
+      renderer.setSize( RENDER_WIDTH, RENDER_HEIGHT );
+      renderer.shadowMap.enabled = true;
+      document.body.appendChild( renderer.domElement );
+      
+    //Lighting and effects variables
+      
+      var ambientLight = new THREE.AmbientLight( 0x888888 ); //medium white light
+      scene.add(ambientLight);
+
+				dirLight = new THREE.DirectionalLight( 0xffffff, 1 );
+				dirLight.position.set( 50, 50, 75);
+				dirLight.position.multiplyScalar( 1 );
+				dirLight.castShadow = true;
+        dirLight.shadow.camera.left = -100;
+        dirLight.shadow.camera.right = 100;
+        dirLight.shadow.camera.top = 100;
+        dirLight.shadow.camera.bottom = -100;
+        scene.add( dirLight );
+      
+    //Game parameters
+      
+      var voxel = new THREE.BoxGeometry( 2, 2, 2 );
+      var voxelWireGeometry = new THREE.EdgesGeometry( voxel );
+      var voxelWireframe = new THREE.WireframeGeometry( voxelWireGeometry );
+      var voxelWireMaterial = new THREE.LineBasicMaterial( {color:0x116027} );
+      
+      var stage = [];
+      for (var i = 0; i<50; i++){
+        for (var j = 0; j<50; j++){
+          let voxelMaterial = new THREE.MeshLambertMaterial( {color:0x115522} );
+          let stageVoxel = new THREE.Mesh( voxel, voxelMaterial );
+          
+          stageVoxel.position.x += (j*2-50);
+          stageVoxel.position.y += (i*2-50);
+
+          stageVoxel.castShadow = false;
+          stageVoxel.receiveShadow = true;
+          stageVoxel.userData = {
+                                  type: "voxel",
+                                  index: i*50+j,
+                                  intersects: true
+                                 }
+
+          stage[i*50+j] = stageVoxel;
+        }
+      }
+      /*for (var i = 0; i<50; i++){
+        for (var j = 0; j<50; j++){
+          
+          let stageVoxelWire = new THREE.LineSegments( voxelWireGeometry, voxelWireMaterial );
+          
+          stageVoxelWire.position.x += (j*2-50);
+          stageVoxelWire.position.y += (i*2-50);
+
+          stage[i*100+j+2500] = stageVoxelWire;
+        }
+      }*/
+      
+      function Unit(team_int, unit_color, array_index){
+      
+          //initialize THREE.JS parameters for materials and geometry
+          let unitMesh = new THREE.BoxGeometry( 0.3, 0.8, 1.8);
+          let gun = new THREE.BoxGeometry(0.9, 0.1, 0.13);
+          let teamMaterial = new THREE.MeshLambertMaterial( {color:unit_color} );
+          let newUnit = new THREE.Mesh( unitMesh, teamMaterial );
+          let gunMaterial = new THREE.MeshLambertMaterial( {color:0x111111} );
+          let unitWeapon = new THREE.Mesh( gun, gunMaterial );
+          
+          //initialize Object parameters
+          newUnit.add(unitWeapon);
+          newUnit.children[0].position.x += 0.5;
+          newUnit.children[0].position.y += -0.4;
+          newUnit.children[0].position.z += 0.5
+          newUnit.castShadow = true;
+          newUnit.receiveShadow = true;
+          newUnit.userData = {
+              team: team_int, 
+              type: "unit", 
+              index: array_index,
+              intersects: true
+          };
+          
+          this.obj = newUnit; 
+          this.type = "unit";
+          this.index = array_index;
+          this.team = team_int;
+          this.isDead = false;
+          
+          let unit = this;
+          
+          //unit methods for handling tasks and responding to threats
+          this.act = function(){
+               if(!this.isDead){ this.task.run();}
+          }
+          
+          //subobjects for unit control
+          this.task = new Task(unit);
+          this.physics = new Physics(this.obj);
+          
+          this.kill = function () {
+              this.obj.lookAt(0,0,0);
+              this.isDead = true;
+              console.log("dead");
+          }
+
+      }
+     
+     //this code handle the types and organization of tasks
+      function Task(unit){
+          this.tasks = []; 
+          /*
+              Sampletask = {
+                type: "move"
+                target: object
+              }
+          */
+          
+          this.new = function(task){
+              this.tasks.push(task);
+          }
+          this.clear = function(){
+              this.tasks = [];
+          }
+          this.taskComplete = function(){
+              this.tasks.shift();
+          }
+          this.run = function (){
+              if(this.tasks.length){
+                  let task = this.tasks[0];
+                  
+                  let pointA = new THREE.Vector2(unit.obj.position.x, unit.obj.position.y); //clones the unit and target positions so we can use destructive methods
+                  let pointB = new THREE.Vector2(task.target.position.x, task.target.position.y);
+                  switch (task.type){
+                      case "move":
+                          if(pointA.distanceTo(pointB) > 0.3){
+                              m = pointA.sub(pointB).clone();
+                              m.normalize();
+                              //moves the unit in the correct direction
+                              unit.physics.x -= m.x*30;
+                              unit.physics.y -= m.y*30;
+                              
+                              //points the unit in the correction direction
+                              let targetAngle = Math.atan(m.y/m.x); //the arctan of y over x of a normalized vector provides the target angle
+                              if(targetAngle) {unit.obj.rotation.z = targetAngle} 
+                              if(m.x>=0){unit.obj.rotation.z += Math.PI; } //if the target is on the right, the object is rotated 180 degrees.
+                          
+                          }else{
+                              this.taskComplete();
+                              unit.physics.x = 0;
+                              unit.physics.y = 0;
+                          }
+                          break;
+                       case "fire":
+                          //points the unit in the correction direction
+                          
+                          m = pointA.clone().sub(pointB)
+                          m.normalize();
+                         
+                          let targetAngle = Math.atan(m.y/m.x); //the arctan of y over x of a normalized vector provides the target angle
+                          if(targetAngle) {unit.obj.rotation.z = targetAngle} 
+                          if(m.x>=0){unit.obj.rotation.z += Math.PI; } //if the target is on the right, the object is rotated 180 degrees.
+                          unit.obj.updateWorldMatrix( false, true);
+                          
+                           // gets the position of the weapon and fires the bullet based on that positiondw
+                           let bullet_pos = new THREE.Vector3;
+                          bullet_pos.setFromMatrixPosition(unit.obj.children[0].matrixWorld);
+                          pointA2 = new THREE.Vector2();
+                          pointA2.x = bullet_pos.x;
+                          pointA2.y = bullet_pos.y;
+                          let n = pointA2.clone().sub(pointB);
+                          
+                          let bullet_direction = new THREE.Vector3(-n.x, -n.y, unit.obj.children[0].position.z-0.5).normalize();
+                          let bullet = new Bullet(bullet_pos, bullet_direction, nato556);
+                          projectiles.push(bullet);
+                          this.taskComplete();
+                  }
+              }
+          }
+      }
+      
+      //Bullet object
+      
+      //bullet type structs
+      nato556 = {velocity: 961};
+
+      
+      function Bullet(vec3_position, direction, cartridge){
+
+          this.m = direction.multiplyScalar(cartridge.velocity/60);
+          this.gravity = 9.8/60;
+          this.p1 = vec3_position.clone(); //rear point
+          this.p2 = vec3_position.add(this.m); //forward point
+          this.tracer;
+          this.deleted = false;
+          
+          this.updateTracer = function(){
+              
+              let material = new THREE.LineBasicMaterial({linewidth: 1, color: 0xDDDDDD});
+              let geometry = new THREE.Geometry();
+              geometry.vertices.push(this.p1, this.p2);
+              this.tracer = new THREE.Line(geometry, material);
+              this.tracer.userData = {
+                  type: "bullet",
+                  intersects: false
+              }
+              scene.add(this.tracer);
+          }
+          this.updatePoints = function(){
+              if(this.p2.x < 100 && this.p2.x >-100 && this.p2.y < 100 && this.p2.y >-100){ 
+                  this.p1 = this.p2.clone(); //sets last forward point as new rear point
+                  this.p2.add(this.m); //adds the momentum to create the new forward point
+              }else{
+                  this.delete();
+              }
+          
+          }
+          this.intersect = function(){
+              scene.remove(this.tracer);
+              far_vec3 = this.p1.clone();
+              far_vec3.sub(this.p2); //generates the far distance from the difference between point one and two
+              direction = far_vec3.clone(); //generates the normalize directional vector from far to avoid subtracting twice
+              direction.normalize();
+              let raycaster = new THREE.Raycaster(this.p1.clone(), direction, 0, far_vec3.length()); 
+              HITS = raycaster.intersectObjects(scene.children);
+              
+              if(HITS.length >0){
+                  console.log(HITS);
+                  //uD = HITS[HITS.length].object.userData;
+                  scene.remove(HITS[HITS.length-1].object);
+                  this.delete();
+                  this.p2 = HITS[HITS.length-1].object.position;
+              }
+          }
+          this.update = function (){
+              this.updatePoints();
+              this.intersect();
+              this.updateTracer();
+              
+          }
+          this.delete = function (){
+              this.deleted = true;
+              scene.remove(this.tracer);
+          }
+          this.updateTracer();
+      }
+      
+     //class for handling physics
+      function Physics (obj){
+          this.MOMENTUM_DECAY = 0.5;
+      
+          this.x = 0; //momentum direction / magnitude
+          this.y = 0;
+          this.z = 0;
+          
+          this.update = function(){
+              
+              //apply momentum to position
+              obj.position.x += this.x/60;
+              obj.position.y += this.y/60;
+              obj.position.z += this.z/60;
+              
+              //keep radians in the range of 0 to TAU
+              if(obj.rotation.z > TAU) {obj.rotation.z-=TAU};
+              if(obj.rotation.z < 0) {obj.rotation.z+=TAU};
+              
+              //apply decay to momentum
+              this.x = this.x*this.MOMENTUM_DECAY;
+              this.y = this.y*this.MOMENTUM_DECAY;
+              this.z = this.z*this.MOMENTUM_DECAY;
+          }
+      }
+      
+      
+      
+      
+      var teamOne = [];
+      for (var i = 0; i<4; i++){
+        for (var j = 0; j<4; j++){
+          
+          unit = new Unit(0, 0x110088, i*4+j)
+          unit.obj.position.x += j-40;
+          unit.obj.position.y += i-40;
+          unit.obj.position.z = 1.8;
+          
+          teamOne[i*4+j] = unit;
+        }
+      }
+      
+      var teamTwo = [];
+      for (var i = 0; i<4; i++){
+        for (var j = 0; j<4; j++){
+        
+          unit = new Unit(1, 0x880011, i*4+j)
+          unit.obj.position.x -= j-40;
+          unit.obj.position.y -= i-40;
+          unit.obj.position.z = 1.8;
+          
+          teamTwo[i*4+j] = unit;
+        }
+      }
+      
+      var units = [teamOne, teamTwo];
+      var projectiles = [];
+      
+      for (var i = 0; i<stage.length; i++){
+        scene.add( stage[i] );
+      }
+      
+      for (var i = 0; i<units[0].length; i++){
+        scene.add( units[0][i].obj );
+      }
+      for (var i = 0; i<units[1].length; i++){
+        scene.add( units[1][i].obj );
+      }
+      
+//Game state control functions
+      function stageUpdate() {
+          for (let i = 0; i<stage.length; i++){
+              //stage[i].rotation.z+=0.01
+          }
+          for (let i = 0; i<projectiles.length; i++){
+              projectiles[i].update();
+              if(projectiles[i].deleted){
+                  scene.remove(projectiles[i].tracer);
+                  delete projectiles[i];
+                  projectiles.splice(i,1);
+              }
+          }
+      }
+      
+      function unitUpdate(){
+          for (let u = 0; u<units[0].length; u++){
+              units[0][u].act(); //adjusts forces internally from unit AI
+              units[0][u].physics.update(); //applies all of the forces acting on the unit
+              if(units[0][u].isDead){scene.remove(units[0][u].obj)}
+          }          
+          for (let u = 0; u<units[1].length; u++){
+              units[1][u].act(); //adjusts forces internally from unit AI
+              units[1][u].physics.update(); //applies all of the forces acting on the unit
+          }
+      }
+
+      
+//GUI control functions
+      
+      function guiUpdate(){
+        cameraUpdate();
+        selectionUpdate();
+        keyPoll();
+      }
+      
+//primary raycaster and object selection and targeting
+      
+      var selections = []; //selections is an array of selected units or tiles
+      var targets = [];
+      
+      var raycaster = new THREE.Raycaster();
+      raycaster.linePrecision = 0.0001;
+      
+      function selectionUpdate() {
+          
+          raycasterUpdate()
+          for(let u = 0; i < selections.length; i++){
+              selections[i].material.emissive.setHex(0x330500);
+          }
+          
+      }
+      
+
+      
+      function raycasterUpdate(){
+          raycaster.setFromCamera( mouse, camera );
+          let intersects = raycaster.intersectObjects( scene.children );
+          //console.log(intersects);
+          if ( (intersects.length > 0) && intersects[0].object.userData.intersects) {
+              if ( INTERSECTED != intersects[ 0 ].object ) {
+                  if ( INTERSECTED ) INTERSECTED.material.emissive.setHex( INTERSECTED.currentHex );
+                  INTERSECTED = intersects[ 0 ].object;
+                  if(INTERSECTED.material.emissive){
+                    INTERSECTED.currentHex = INTERSECTED.material.emissive.getHex();
+                    INTERSECTED.material.emissive.setHex( 0x222200 );
+                  }
+                  
+					}
+          //raycaster mouse interaction functions
+              if (mouseIsDown.mb0){
+                  for(let i = 0; i < selections.length; i++){
+                      selections[i].material.emissive.setHex(selections[i].currentHex);
+                  }
+                  selections = [];
+                  targets = [];
+                  selections.push(INTERSECTED.clone());
+                  taskSelectionMonitor();
+                  //console.log(selections);
+              }
+              if (mouseIsDown.mb2){
+                  targets = [];
+                  targets.push(INTERSECTED.clone());
+                  taskSelectionMonitor();
+                  //console.log(targets);
+              }
+              
+          } else {
+              if ( INTERSECTED && INTERSECTED.material.emissive ) INTERSECTED.material.emissive.setHex( INTERSECTED.currentHex );
+              INTERSECTED = null;
+
+				}
+      }
+      
+      //this funcion monitors the selections and target buffers to generate tasks
+          
+      function taskSelectionMonitor(){
+          if(selections[0]&&targets[0]){
+              for(let i = 0; i < selections.length; i++){
+                  if(selections[i].userData.type=="unit" 
+                      && selections[i].userData.team == MY_TEAM
+                      && targets[0].userData.type == "voxel")
+                  {
+                      let task = {
+                                  type: "move",
+                                  target: targets[0]
+                                  }
+                                  
+                      units[0][selections[i].userData.index].task.clear();
+                      units[0][selections[i].userData.index].task.new(task);
+                  }
+                  if(selections[i].userData.type=="unit" 
+                      && selections[i].userData.team == MY_TEAM
+                      && targets[0].userData.type == "unit"
+                      && targets[0].userData.type != MY_TEAM)
+                  {
+                      let task = {
+                                  type: "fire",
+                                  target: targets[0]
+                                  }
+                                  
+                      units[0][selections[i].userData.index].task.clear();
+                      units[0][selections[i].userData.index].task.new(task);
+                  }
+                  selections[i].material.emissive.setHex(selections[i].currentHex);
+              }
+              targets = [];
+              selections = [];
+              
+          }
+      }
+      
+//Camera functions      
+           
+      camera.position.z = 100;
+      var zoomMomentum = 0;
+      var xCameraMomentum = 0;
+      var yCameraMomentum = 0;
+      var MIN_CAMERA_HEIGHT = 5
+      var MAX_CAMERA_HEIGHT = 100;
+      var MIN_CAMERA_X = -50;
+      var MAX_CAMERA_X = 50;
+      var MIN_CAMERA_Y = -50;
+      var MAX_CAMERA_Y = 50;
+
+      function cameraUpdate(){
+        zoom();
+        cameraMove();
+      }
+      
+      function zoom(){
+          camera.position.z += zoomMomentum*camera.position.z*0.02;
+          if(camera.position.z <= MAX_CAMERA_HEIGHT){
+              if(camera.position.z >= MIN_CAMERA_HEIGHT){
+                  if(zoomMomentum > 0){zoomMomentum += -0.5};
+                  if(zoomMomentum < 0){zoomMomentum +=  0.5};
+              }else{
+                  zoomMomentum = 1;
+              }
+          }else{
+              zoomMomentum = -1;
+          }
+          //console.log(zoomMomentum);
+      }
+      
+      function cameraMove(){
+          camera.position.x += xCameraMomentum*camera.position.z*0.02;
+          if(camera.position.x <= MAX_CAMERA_X){
+              if(camera.position.x >= MIN_CAMERA_X){
+                  if(xCameraMomentum > 0){xCameraMomentum -= xCameraMomentum/2};
+                  if(xCameraMomentum < 0){xCameraMomentum -= xCameraMomentum/2};
+              }else{
+                  xCameraMomentum = 1;
+              }
+          }else{
+              xCameraMomentum = -1;
+          }
+          //console.log("x"+xCameraMomentum + " xpos" + camera.position.x);
+          camera.position.y += yCameraMomentum*camera.position.z*0.02;
+          if(camera.position.y <= MAX_CAMERA_Y){
+              if(camera.position.y >= MIN_CAMERA_Y){
+                  if(yCameraMomentum > 0){yCameraMomentum -= yCameraMomentum/2};
+                  if(yCameraMomentum < 0){yCameraMomentum -= yCameraMomentum/2};
+              }else{
+                  yCameraMomentum = 1;
+              }
+          }else{
+              yCameraMomentum = -1;
+          }
+          //console.log("y"+yCameraMomentum);
+      }
+
+//Event listeners
+      window.addEventListener( 'mousedown', onMouseDown, false );
+      window.addEventListener( 'mouseup', onMouseUp, false );
+      window.addEventListener( 'mousemove', onMouseMove, false );
+      window.addEventListener( 'wheel', onMouseWheel, false );
+      document.addEventListener( 'keydown', onKeyDown, false );
+      document.addEventListener( 'keyup', onKeyUp, false );
+      document.addEventListener('contextmenu', function(e){e.preventDefault()}, false);
+//Event Handlers
+      
+      var keyIsDown = {
+          w: false,
+          a: false,
+          s: false,
+          d: false
+      }
+      
+      var mouse = new THREE.Vector2(), INTERSECTED; mouse.x = 1; mouse.y = 1;
+      
+      var mouseIsDown = {
+          mb0: false,
+          mb1: false,
+          mb2: false,
+          mb3: false,
+          mb4: false
+      }
+
+      
+      function keyPoll(){
+          if(keyIsDown.w){
+              if(yCameraMomentum<5){yCameraMomentum+=((yCameraMomentum*0.5)+0.4)};
+          }
+          if(keyIsDown.a){
+              if(xCameraMomentum>-5){xCameraMomentum-=((-xCameraMomentum*0.5)+0.4)};
+          }
+          if(keyIsDown.s){
+              if(yCameraMomentum>-5){yCameraMomentum-=((-yCameraMomentum*0.5)+0.4)};
+          }
+          if(keyIsDown.d){
+              if(xCameraMomentum<5){xCameraMomentum+=((xCameraMomentum*0.5)+0.4)};
+          }
+      }
+      
+      function onMouseDown(ev){
+          //console.log(ev.button);
+          if (ev.button == 0){
+              mouseIsDown.mb0 = true;
+          }
+          if (ev.button == 1){
+              mouseIsDown.mb1 = true;
+          }
+          if (ev.button == 2){
+              mouseIsDown.mb2 = true;
+          }
+          if (ev.button == 3){
+              mouseIsDown.mb3 = true;
+          }          
+          if (ev.button == 4){
+              mouseIsDown.mb4 = true;
+          }
+      }
+      
+      function onMouseUp(ev){
+          if (ev.button == 0){
+              mouseIsDown.mb0 = false;
+          }
+          if (ev.button == 1){
+              mouseIsDown.mb1 = false;
+          }
+          if (ev.button == 2){
+              mouseIsDown.mb2 = false;
+          }
+          if (ev.button == 3){
+              mouseIsDown.mb3 = false;
+          }          
+          if (ev.button == 4){
+              mouseIsDown.mb4 = false;
+          }
+      }
+      
+      function onMouseMove( ev ){
+          mouse.x = (ev.clientX / RENDER_WIDTH )*2-1;
+          mouse.y = -(ev.clientY / RENDER_HEIGHT )*2+1;
+          //console.log("Client X: " + ev.clientX +" Client Y: "+ ev.clientY);
+          //console.log("Mouse X: " + mouse.x +" Mouse Y: "+ mouse.y);
+      }
+      
+      function onMouseWheel( ev ){
+          var amount = ev.deltaY;
+          if(camera.position.z <= MAX_CAMERA_HEIGHT){
+              if(camera.position.z >= MIN_CAMERA_HEIGHT){
+                  if(zoomMomentum < 3 && zoomMomentum > - 3){
+                      zoomMomentum += amount;
+                  }
+              }
+          }
+      }
+      
+      function onKeyDown(ev){
+          //console.log(ev.code);
+          if (ev.code == "KeyW"){
+              keyIsDown.w = true;
+          }
+          if (ev.code == "KeyA"){
+              keyIsDown.a = true;
+          }
+          if (ev.code == "KeyS"){
+              keyIsDown.s = true;
+          }
+          if (ev.code == "KeyD"){
+              keyIsDown.d = true;
+          }
+      }
+      
+      function onKeyUp(ev){
+          if (ev.code == "KeyW"){
+              keyIsDown.w = false;
+          }
+          if (ev.code == "KeyA"){
+              keyIsDown.a = false;
+          }
+          if (ev.code == "KeyS"){
+              keyIsDown.s = false;
+          }
+          if (ev.code == "KeyD"){
+              keyIsDown.d = false;
+          }
+      }
+      
+//random untility functions
+
+      function averageVectorOfGeometry(g){// takes a THREE.js geometry and returns the center point
+          
+      }
+      
+//GAME RUNTIME FUNCTIONS
+      function animate(){
+          stageUpdate();
+          unitUpdate();
+          guiUpdate();
+          requestAnimationFrame( animate );
+          render();
+      }
+      
+      function render(){
+          renderer.render( scene, camera );
+      }
+      
+      animate();
+    </script>
+	</body>
+</html>
